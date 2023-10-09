@@ -14,5 +14,5 @@ If you want, start the script when the user logs in.
 
 ToDo / Possible Enhancements:
 - Monitoring multiple RSS Feeds (at the same time or after one another)
-- Multiple RSS Feeds, multiple FavIcons, which could be donwloaded automatically based on the URL
+- Multiple RSS Feeds, multiple FavIcons, which could be downloaded automatically based on the URL
 - Saving and restoring the links, which have already been notified.
