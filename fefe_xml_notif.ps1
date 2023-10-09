@@ -8,7 +8,7 @@
 # Check if BurntToast module is installed, if not, install it
 if (-not (Get-Module -Name BurntToast -ListAvailable)) {
     Write-Output "Installing BurntToast module..."
-    Install-Module -Name BurntToast -Force -SkipPublisherCheck -Scope CurrentUser
+    Install-Module -Name BurntToast -Force -SkipPublisherCheck -Scope CurrentUser -Confirm:$false
 }
 
 # Import the BurntToast module
