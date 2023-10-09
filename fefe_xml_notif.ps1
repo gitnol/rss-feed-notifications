@@ -17,12 +17,18 @@ Import-Module -Name BurntToast -Force
 # Load the required assembly
 Add-Type -AssemblyName PresentationFramework
 
-# RSS feed URL
+# RSS feed URL, hopefully should work with all rss feeds...
 $rssUrl = "https://blog.fefe.de/rss.xml"
+# $rssUrl = "https://www.stern.de/feed/standard/all"
 
 # Recheck rssUrl every x Seconds. Standard = 300 Seconds
 # If within the 300 seconds two rss items are added, only the newest item will create a notification.
 $recheckEverySeconds = 300
+
+# Maximum number of item in the rss feed, which should be notified to the user.
+# No Notification will be notified twice after the script has started.
+# ToDo: Improve the script, so that the links which were notified are being saved every x seconds and loaded at scriptstart
+$MaxNumberOfRSSItemsNotified = 3
 
 # Define the URL of the image, will be downloaded once in a temp folder
 $url = "https://blog.fefe.de/logo-gross.jpg"
@@ -56,16 +62,26 @@ else {
 }
 
 
-
-# Function to fetch and parse RSS feed, and return the latest item
-function Get-LatestRssItem {
+function Get-NLatestRssItem {
+    param (
+        [int]$n = 1
+    )
+    $erg = @()
     $rss = Invoke-RestMethod -Uri $rssUrl
-    $latestItem = $rss[0]  # Get the first item (latest item)
-    $title = $latestItem.title
-    $link = $latestItem.link
-    $guid = $latestItem.guid
-    return $title, $link, $guid
+    # $rss
+    for($i=0; $i -lt $n;$i++){
+        $i
+        if ($rss[$i]) {
+            $erg+=[PSCustomObject]@{
+                title = ($rss[$i]).title
+                link = ($rss[$i]).link
+                guid = ($rss[$i]).guid
+            }
+        }
+    }
+    return $erg
 }
+
 
 # Function to display a notification with the latest RSS item
 function Show-RssNotification {
@@ -86,17 +102,23 @@ function Show-RssNotification {
 }
 
 # Main loop to send notifications with the latest RSS item
+$notified = @()
 while ($true) {
     try {
-        $latestTitle, $latestLink, $latestGuid = Get-LatestRssItem
-        if ($global:lastURL -ne $latestLink) {
+        $RssItems = Get-NLatestRssItem -n $MaxNumberOfRSSItemsNotified
+        foreach($rssItem in $RssItems){
+            if(($rssItem.link -notin $notified) -and ($rssItem.link -ne $null)) {
+                # notify
+                $title_length = ($rssItem.title.Length,30| Measure-Object -Minimum).Minimum
+                $subtext_length = ($rssItem.title.Length,140| Measure-Object -Minimum).Minimum          
+                Show-RssNotification -title $rssItem.title.SubString(0, $title_length) -subtext $rssItem.title.SubString(0, $subtext_length) -link $rssItem.link -toastAppLogoSourcePath $filePath
+                $notified += $rssItem.link
+            } else {
+                # do not notify
+                if ($debug) { Write-Host (($rssItem.link) +" was already notified.") }else { Write-Host(".") -NoNewLine }
+            }
+        }
 
-            Show-RssNotification -title $latestTitle.SubString(0, 30) -subtext $latestTitle.SubString(0, 140) -link $latestLink -toastAppLogoSourcePath $filePath
-            $global:lastURL = $latestLink
-        }
-        else {
-            if ($debug) { Write-Host "$latestLink was already notified." }else { Write-Host(".") -NoNewLine }
-        }
         Start-Sleep -Seconds $recheckEverySeconds  # Check for new content every 5 minutes
     }
     catch {
