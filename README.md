@@ -1,7 +1,10 @@
 # fefe_blog_notifier
-Windows notifications about new blog items in the fefe blog (Felix von Leitner) with powershell and BurnToast.
+Windows notifications about new blog items in the fefe blog (Felix von Leitner) or other rss feeds with powershell and BurnToast.
 
-The script downloads the RSS file every 300 seconds and creates a Windows notification if the URL has not already been notified.
+The script downloads the RSS feed infos every 300 seconds and creates a Windows notification if the URL has not already been notified.
+Just add your RSS feed to $ArrayOfrssUrls
+If one link has been notified, this will be saved in the %temp%\notified.json file on your computer.
+The favicon.ico from each RSS feed will also be saved in the %temp% folder. (Example: `%temp%\my.domain.com_favicon.ico`)
 
 If you want, start the script when the user logs in.
 
@@ -13,6 +16,6 @@ If you want, start the script when the user logs in.
 4. Enjoy!
 
 ToDo / Possible Enhancements:
-- Monitoring multiple RSS Feeds (at the same time or after one another)
-- Multiple RSS Feeds, multiple FavIcons, which could be downloaded automatically based on the URL
-- Saving and restoring the links, which have already been notified.
+- ~~Monitoring multiple RSS Feeds (at the same time or after one another)~~ -> Done
+- ~~Multiple RSS Feeds, multiple FavIcons, which could be downloaded automatically based on the URL~~ -> Done
+- ~~Saving and restoring the links, which have already been notified.~~ -> Done

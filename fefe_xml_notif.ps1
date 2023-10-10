@@ -1,13 +1,11 @@
-# This script is experimental. 
-
-# This script is just for educational purposes
+# This script is just for educational purposes. It is functional, but experimental
 
 # I am not the owner of the blog https://blog.fefe.de
 # Owner of the blog is Felix von Leitner (https://de.wikipedia.org/wiki/Fefes_Blog)
 
 # Check if BurntToast module is installed, if not, install it
 if (-not (Get-Module -Name BurntToast -ListAvailable)) {
-    Write-Output "Installing BurntToast module..."
+    Write-Host "Installing BurntToast module..."
     Install-Module -Name BurntToast -Force -SkipPublisherCheck -Scope CurrentUser -Confirm:$false
 }
 
@@ -17,27 +15,21 @@ Import-Module -Name BurntToast -Force
 # Load the required assembly
 Add-Type -AssemblyName PresentationFramework
 
-# RSS feed URL, hopefully should work with all rss feeds...
-$rssUrl = "https://blog.fefe.de/rss.xml"
-# $rssUrl = "https://www.stern.de/feed/standard/all"
+# Set to $true if you want see further information
+$debug = [bool]$false
+
+# RSS feed URL, hopefully should work with all rss feeds... at least one rss feed should be provided
+$ArrayOfrssUrls = @()
+$ArrayOfrssUrls += "https://blog.fefe.de/rss.xml"
+$ArrayOfrssUrls += "https://www.stern.de/feed/standard/all"
 
 # Recheck rssUrl every x Seconds. Standard = 300 Seconds
 # If within the 300 seconds two rss items are added, only the newest item will create a notification.
 $recheckEverySeconds = 300
 
-# Maximum number of item in the rss feed, which should be notified to the user.
+# Maximum number of item in each rss feed, which should be notified to the user.
 # No Notification will be notified twice after the script has started.
-# ToDo: Improve the script, so that the links which were notified are being saved every x seconds and loaded at scriptstart
 $MaxNumberOfRSSItemsNotified = 3
-
-# Define the URL of the image, will be downloaded once in a temp folder
-$url = "https://blog.fefe.de/logo-gross.jpg"
-
-# Remember last url to avoid multiple notifications
-$global:lastURL = ""
-
-# Set to $true if you want see further information
-$debug = [bool]$false
 
 ########### DO NOT CHANGE ANYTHING BELOW THIS ################
 if ($debug) { Write-Host("Script started") }
@@ -45,43 +37,53 @@ if ($debug) { Write-Host("Script started") }
 # Define the path to the temporary folder
 $tempFolderPath = [System.IO.Path]::GetTempPath()
 
-# Combine the URL filename with the temporary folder path to create the full file path
-$filePath = Join-Path -Path $tempFolderPath -ChildPath (Split-Path -Path $url -Leaf)
 
-# Check if the file already exists in the temporary folder
-if (-not (Test-Path -Path $filePath)) {
-    # File does not exist, download the image
-    Invoke-WebRequest -Uri $url -OutFile $filePath
+function Download-Image {
+    param (
+        $faviconInfos,
+        [bool]$debug = $false
+    )
 
-    # Output a message indicating successful download
-    if ($debug) { Write-Output "Image downloaded and saved to: $filePath" }
+    foreach($item in $faviconInfos) {
+        # Check if the file already exists in the temporary folder
+        $filePath = $item.localfile
+        $url = $item.remotefile
+        if (-not (Test-Path -Path $filePath)) {
+            # File does not exist, download the image
+            Invoke-WebRequest -Uri $url -OutFile $filePath
+
+            # Output a message indicating successful download
+            if ($debug) { Write-Host "Image downloaded and saved to: $filePath" }
+        } else {
+            # File already exists, output a message indicating that the file was not downloaded
+            if ($debug) { Write-Host "File already exists in the temporary folder: $filePath" }
+        }
+    }
 }
-else {
-    # File already exists, output a message indicating that the file was not downloaded
-    if ($debug) { Write-Output "File already exists in the temporary folder: $filePath" }
-}
-
 
 function Get-NLatestRssItem {
     param (
-        [int]$n = 1
+        [int]$n = 1,
+        [string]$myRSSUrl
     )
     $erg = @()
-    $rss = Invoke-RestMethod -Uri $rssUrl
-    # $rss
-    for($i=0; $i -lt $n;$i++){
-        $i
-        if ($rss[$i]) {
-            $erg+=[PSCustomObject]@{
-                title = ($rss[$i]).title
-                link = ($rss[$i]).link
-                guid = ($rss[$i]).guid
+    # Try-Catch wrapping around this messy little thing
+    if ($myRSSUrl) {
+        $rss = Invoke-RestMethod -Uri $myRSSUrl
+        If ($debug) { $rss }
+        for ($i = 0; $i -lt $n; $i++) {
+            $i
+            if ($rss[$i]) {
+                $erg += [PSCustomObject]@{
+                    title = ($rss[$i]).title
+                    link  = ($rss[$i]).link
+                    guid  = ($rss[$i]).guid
+                }
             }
         }
     }
     return $erg
 }
-
 
 # Function to display a notification with the latest RSS item
 function Show-RssNotification {
@@ -101,22 +103,118 @@ function Show-RssNotification {
     Submit-BTNotification -Content $Content1
 }
 
-# Main loop to send notifications with the latest RSS item
-$notified = @()
+function Manage-JsonVariable {
+    [CmdletBinding(DefaultParameterSetName = 'Save')]
+    param (
+        [Parameter(ParameterSetName = 'Save', Mandatory = $true, ValueFromPipelineByPropertyName = $true)]
+        [switch]$Save,
+
+        [Parameter(ParameterSetName = 'Load', Mandatory = $true, ValueFromPipelineByPropertyName = $true)]
+        [switch]$Load,
+
+        [Parameter(ParameterSetName = 'Save', Mandatory = $true, ValueFromPipelineByPropertyName = $true)]
+        [Parameter(ParameterSetName = 'Load', Mandatory = $true, ValueFromPipelineByPropertyName = $true)]
+        [string]$Folder,
+
+        [Parameter(ParameterSetName = 'Save', Mandatory = $true, ValueFromPipelineByPropertyName = $true)]
+        [Parameter(ParameterSetName = 'Load', Mandatory = $true, ValueFromPipelineByPropertyName = $true)]
+        [string]$VariableName
+    )
+
+    if ($Save) {
+        $Operation = "Save"
+    } elseif ($Load) {
+        $Operation = "Load"
+    } else {
+        Write-Error "Invalid operation. Please use '-Save' or '-Load'."
+        return
+    }
+    
+
+    $FilePath = Join-Path -Path $Folder -ChildPath "$VariableName.json"
+
+    if ($Operation -eq "Save") {
+        # Check if the variable exists
+        if (Test-Path variable:\$VariableName) {
+            # Get the variable value and convert it to JSON, then save to the file
+            Get-Variable -Name $VariableName -ValueOnly | ConvertTo-Json | Set-Content -Path $FilePath
+            if ($debug) { Write-Host "Variable '$VariableName' saved to '$FilePath'." }
+        } else {
+            if ($debug) { Write-Host "Variable '$VariableName' does not exist. Cannot save." }
+        }
+    }  elseif ($Operation -eq "Load") {
+        # Check if the file exists
+        if (Test-Path $FilePath) {
+            # Load JSON from file and return the loaded variable
+            $loadedVariable = Get-Content -Path $FilePath | ConvertFrom-Json
+            if ($debug) { Write-Host("Variable '$VariableName' loaded from '$FilePath'.") }
+            return $loadedVariable
+        } else {
+            if ($debug) { Write-Host "File '$FilePath' not found. Cannot load. Return Empty Array" }
+            return @()
+        }
+    } else {
+        if ($debug) { Write-Host "Invalid operation. Please use 'Load' or 'Save'." }
+    }
+}
+
+############################################################
+# Main loop to send notifications with the latest RSS item #
+############################################################
+
+$faviconInfos = @()
+foreach($url in $ArrayOfrssUrls){
+    # Extract domain from the URL
+    $domain = ([uri]$url).Host
+
+    # Create the new URL with favicon.ico
+    # Define the URL of the image, will be later downloaded once in a temp folder 
+    $faviconUrl = "https://$domain/favicon.ico"
+    $localUrl = Join-Path -Path $tempFolderPath -ChildPath ($domain + "_favicon.ico")
+
+    # Output the new URL
+
+    $faviconInfos += [PSCustomObject]@{
+        remotefile = $faviconUrl
+        localfile = $localUrl
+    }
+}
+
+# Download all favicons from all rss feed domains and store it in the temp folder
+Download-Image -faviconInfos $faviconInfos
+
+# Load the previous notifications from the file in the temporary folder. If there is no file there, then an empty array is returned
+$notified = Manage-JsonVariable -Load -Folder $tempFolderPath -VariableName "notified"
+if (-not $notified) { $notified = @() }
+
 while ($true) {
     try {
-        $RssItems = Get-NLatestRssItem -n $MaxNumberOfRSSItemsNotified
-        foreach($rssItem in $RssItems){
-            if(($rssItem.link -notin $notified) -and ($rssItem.link -ne $null)) {
-                # notify
-                $title_length = ($rssItem.title.Length,30| Measure-Object -Minimum).Minimum
-                $subtext_length = ($rssItem.title.Length,140| Measure-Object -Minimum).Minimum          
-                Show-RssNotification -title $rssItem.title.SubString(0, $title_length) -subtext $rssItem.title.SubString(0, $subtext_length) -link $rssItem.link -toastAppLogoSourcePath $filePath
-                $notified += $rssItem.link
-            } else {
-                # do not notify
-                if ($debug) { Write-Host (($rssItem.link) +" was already notified.") }else { Write-Host(".") -NoNewLine }
+        # Needed to detect if some new notifications were generated. Based on this and if $true, then the $notified Variable is being saved each time.
+        $newNotifications = $false
+        foreach ($myRSSUrl in $ArrayOfrssUrls) {
+            if ($debug){Write-Host("Current RSS-Feed: $myRSSUrl")}
+            $rssUrl = $myRSSUrl
+            $RssItems = Get-NLatestRssItem -n $MaxNumberOfRSSItemsNotified -myRSSUrl $rssUrl
+            foreach ($rssItem in $RssItems) {
+                if (($rssItem.link -notin $notified) -and ($null -ne $rssItem.link)) {
+                    # notify
+                    $title_length = ($rssItem.title.Length, 30 | Measure-Object -Minimum).Minimum
+                    $subtext_length = ($rssItem.title.Length, 140 | Measure-Object -Minimum).Minimum
+                    # Get the current domain and find the local cached filename for the favicon.ico
+                    $domain = ([uri]$rssUrl).Host
+                    $filePathToIcon = ($faviconInfos.localfile | Where-Object {$_ -like "*$domain*"})
+                    Show-RssNotification -title $rssItem.title.SubString(0, $title_length) -subtext $rssItem.title.SubString(0, $subtext_length) -link $rssItem.link -toastAppLogoSourcePath $filePathToIcon
+                    $notified += $rssItem.link
+                    $newNotifications = $true
+                } else {
+                    # do not notify
+                    if ($debug) { Write-Host (($rssItem.link) + " was already notified.") } else { Write-Host(".") -NoNewLine }
+                }
             }
+        }
+
+        if ($newNotifications) {
+            Manage-JsonVariable -Save -Folder $tempFolderPath -VariableName "notified"
         }
 
         Start-Sleep -Seconds $recheckEverySeconds  # Check for new content every 5 minutes
@@ -126,4 +224,3 @@ while ($true) {
         Start-Sleep -Seconds 60  # Wait for a minute before retrying in case of an error
     }
 }
-
