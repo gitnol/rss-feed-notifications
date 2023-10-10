@@ -1,4 +1,4 @@
-# fefe_blog_notifier
+# fefe_blog_notifier (Fefe Blog Notifier)
 Windows notifications about new blog items in the fefe blog (Felix von Leitner) or other rss feeds with powershell and BurnToast.
 
 The script downloads the RSS feed infos every 300 seconds and creates a Windows notification if the URL has not already been notified.
