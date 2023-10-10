@@ -21,7 +21,10 @@ $debug = [bool]$false
 # RSS feed URL, hopefully should work with all rss feeds... at least one rss feed should be provided
 $ArrayOfrssUrls = @()
 $ArrayOfrssUrls += "https://blog.fefe.de/rss.xml"
-$ArrayOfrssUrls += "https://www.stern.de/feed/standard/all"
+# $ArrayOfrssUrls += "https://www.stern.de/feed/standard/all"
+$ArrayOfrssUrls += "https://www.heise.de/security/rss/news.rdf"
+$ArrayOfrssUrls += "https://www.heise.de/security/rss/alert-news.rdf"
+$ArrayOfrssUrls += "https://www.heise.de/rss/heise-top-alexa.xml"
 
 # Recheck rssUrl every x Seconds. Standard = 300 Seconds
 # If within the 300 seconds two rss items are added, only the newest item will create a notification.
@@ -172,13 +175,19 @@ foreach($url in $ArrayOfrssUrls){
     $faviconUrl = "https://$domain/favicon.ico"
     $localUrl = Join-Path -Path $tempFolderPath -ChildPath ($domain + "_favicon.ico")
 
-    # Output the new URL
-
-    $faviconInfos += [PSCustomObject]@{
+    # Output the new URL (local and remote)
+    $newItem = [PSCustomObject]@{
         remotefile = $faviconUrl
         localfile = $localUrl
     }
+
+    if ($newItem -notin $faviconInfos){
+        $faviconInfos += $newItem
+    }
 }
+
+# Must be unique
+$faviconInfos = ($faviconInfos | Sort-Object -Property remotefile,localfile -Unique)
 
 # Download all favicons from all rss feed domains and store it in the temp folder
 Download-Image -faviconInfos $faviconInfos
@@ -202,7 +211,7 @@ while ($true) {
                     $subtext_length = ($rssItem.title.Length, 140 | Measure-Object -Minimum).Minimum
                     # Get the current domain and find the local cached filename for the favicon.ico
                     $domain = ([uri]$rssUrl).Host
-                    $filePathToIcon = ($faviconInfos.localfile | Where-Object {$_ -like "*$domain*"})
+                    $filePathToIcon = ($faviconInfos.localfile | Where-Object {$_ -like ("*$domain*")}) 
                     Show-RssNotification -title $rssItem.title.SubString(0, $title_length) -subtext $rssItem.title.SubString(0, $subtext_length) -link $rssItem.link -toastAppLogoSourcePath $filePathToIcon
                     $notified += $rssItem.link
                     $newNotifications = $true
