@@ -40,6 +40,11 @@ if ($debug) { Write-Host("Script started") }
 # Define the path to the temporary folder
 $tempFolderPath = [System.IO.Path]::GetTempPath()
 
+# Function to generate a random foreground color
+Function Get-RandomColor {
+    $colors = "Black", "DarkBlue", "DarkGreen", "DarkCyan", "DarkRed", "DarkMagenta", "DarkYellow", "Gray","DarkGray", "Blue", "Green", "Cyan", "Red", "Magenta", "Yellow", "White"
+    return $colors[(Get-Random -Minimum 0 -Maximum $colors.Length)]
+}
 
 function Download-Image {
     param (
@@ -217,7 +222,7 @@ while ($true) {
                     $newNotifications = $true
                 } else {
                     # do not notify
-                    if ($debug) { Write-Host (($rssItem.link) + " was already notified.") } else { Write-Host(".") -NoNewLine }
+                    if ($debug) { Write-Host (($rssItem.link) + " was already notified.") } else { Write-Host(".") -NoNewLine -ForegroundColor (Get-RandomColor)}
                 }
             }
         }
