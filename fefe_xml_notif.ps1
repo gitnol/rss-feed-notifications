@@ -93,13 +93,35 @@ function Get-NLatestRssItem {
     return $erg
 }
 
+function Get-NotificationGroup {
+    param (
+        [string]$rssUrl
+    )
+    
+    # Extract domain and path from the URL
+    $uri = [System.Uri]$rssUrl
+    
+    # Replace www. with nothing, because it is not interesting
+    $hostnameWithoutTld = $uri.Host -replace "www\.",""
+
+    # Remove file type ending (if any) from the path
+    $path = ([System.IO.Path]::ChangeExtension($uri.AbsolutePath, $null)) -replace '\.',''
+
+    # Replace "/" with "-"
+    $pathWithHyphens = $path -replace "/", "-"
+
+    return ($hostnameWithoutTld + $pathWithHyphens)
+}
+
 # Function to display a notification with the latest RSS item
 function Show-RssNotification {
     param (
         [string]$title,
         [string]$subtext,
         [string]$link,
-        [string]$toastAppLogoSourcePath
+        [string]$toastAppLogoSourcePath,
+        [string]$notificationgroup,
+        [string]$domain
     )
     $Text1 = New-BTText -Content $title
     $Text2 = New-BTText -Content $subtext
@@ -107,7 +129,8 @@ function Show-RssNotification {
     $toastAppLogo.Source = $toastAppLogoSourcePath
     $Binding1 = New-BTBinding -Children $Text1, $Text2 -AppLogoOverride $toastAppLogo
     $Visual1 = New-BTVisual -BindingGeneric $Binding1
-    $Content1 = New-BTContent -Visual $Visual1 -Launch $link -ActivationType Protocol
+    $myToastHeader = New-BTHeader -Id $notificationgroup -Title $notificationgroup -Arguments $domain -ActivationType Protocol 
+    $Content1 = New-BTContent -Visual $Visual1 -Launch $link -ActivationType Protocol -Header $myToastHeader
     Submit-BTNotification -Content $Content1
 }
 
@@ -217,7 +240,8 @@ while ($true) {
                     # Get the current domain and find the local cached filename for the favicon.ico
                     $domain = ([uri]$rssUrl).Host
                     $filePathToIcon = ($faviconInfos.localfile | Where-Object {$_ -like ("*$domain*")}) 
-                    Show-RssNotification -title $rssItem.title.SubString(0, $title_length) -subtext $rssItem.title.SubString(0, $subtext_length) -link $rssItem.link -toastAppLogoSourcePath $filePathToIcon
+                    $myNotificationGroup = Get-NotificationGroup $rssUrl
+                    Show-RssNotification -title $rssItem.title.SubString(0, $title_length) -subtext $rssItem.title.SubString(0, $subtext_length) -link $rssItem.link -toastAppLogoSourcePath $filePathToIcon -notificationgroup $myNotificationGroup -domain $domain
                     $notified += $rssItem.link
                     $newNotifications = $true
                 } else {
