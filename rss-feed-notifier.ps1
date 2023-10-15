@@ -252,12 +252,16 @@ while ($true) {
                         $title_length = ($rssItem.title.Length, 30 | Measure-Object -Minimum).Minimum
                         $subtext_length = ($rssItem.title.Length, 140 | Measure-Object -Minimum).Minimum
                         # Get the current domain and find the local cached filename for the favicon.ico
-                        $rssFeedHost = ([uri]$rssUrl).Host
-                        $rssFeedSheme = ([uri]$rssUrl).Scheme
+                        $rssFeedHost = ([uri]$rssUrl).Host # for example www.example.com
+                        $rssFeedSheme = ([uri]$rssUrl).Scheme # for example https
+                        # Get local favicon location from rssfeed
                         $filePathToIcon = ($faviconInfos.localfile | Where-Object {$_ -like ("*$rssfeedhost*")}) 
                         $domain = $rssFeedSheme + "://" + $rssFeedHost
+                        # Generate notifcation group based on the rssUrl
                         $myNotificationGroup = Get-NotificationGroup $rssUrl
+                        # Finally, show the notification.
                         Show-RssNotification -title $rssItem.title.SubString(0, $title_length) -subtext $rssItem.title.SubString(0, $subtext_length) -link $rssItem.link -toastAppLogoSourcePath $filePathToIcon -notificationgroup $myNotificationGroup -domain $domain
+                        # Remember the link from which a notification has been generated
                         $notified += $rssItem.link
                         $newNotifications = $true
                     } else {
@@ -268,6 +272,7 @@ while ($true) {
             }
 
             if ($newNotifications) {
+                # save the notification progress of the notified variable in the notified json file
                 Manage-JsonVariable -Save -Folder $tempFolderPath -VariableName "notified"
             }
             $recheckEverySecondsCounter = 0 # Reset the counter
