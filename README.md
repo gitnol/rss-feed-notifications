@@ -15,7 +15,12 @@ You can add the script to your autorun - for example when the user logs in.
 1. Open Startup Folder: `WIN+R` -> `shell:startup`
 2. create `fefe.bat` file.
 3. Insert content into the batch file (some NuGet Repo Infos should be answered with `Y` ): 
-   1. This: `powershell.exe -executionpolicy bypass -noninteractive -nologo -file "c:\path\to\rss_feed_notifier.ps1"`
-   2. Or: `powershell.exe -executionpolicy bypass -file "c:\path\to\rss_feed_notifier.ps1"`
+   1. This: `pwsh.exe -executionpolicy bypass -noninteractive -nologo -file "c:\path\to\rss_feed_notifier.ps1"`
+   2. Or: `pwsh.exe -executionpolicy bypass -file "c:\path\to\rss_feed_notifier.ps1"`
 4. Enjoy!
+
+
+If you have problems with the notifications, you can try updating the `Microsoft.Toolkit.Uwp.Notifications.dll` in the `$env:USERPROFILE\Documents\PowerShell\Modules\BurntToast\0.8.5\lib\` folder to for example 7.1.3 
+see here: [Microsoft.Toolkit.Uwp.Notifications](https://www.nuget.org/packages/Microsoft.Toolkit.Uwp.Notifications)
+
 
