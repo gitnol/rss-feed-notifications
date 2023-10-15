@@ -207,22 +207,22 @@ $faviconInfos = @()
 foreach($url in $ArrayOfrssUrls){
     # Extract domain from the URL
     $domain = ([uri]$url).Host
-
+    
     # Create the new URL with favicon.ico
     # Define the URL of the image, will be later downloaded once in a temp folder 
     $faviconUrl = "https://$domain/favicon.ico"
     $localUrl = Join-Path -Path $tempFolderPath -ChildPath ($domain + "_favicon.ico")
-
     # Output the new URL (local and remote)
     $newItem = [PSCustomObject]@{
         remotefile = $faviconUrl
         localfile = $localUrl
     }
 
-    if ($newItem -notin $faviconInfos){
-        $faviconInfos += $newItem
-    }
+    # if ($newItem -notin $faviconInfos){
+    $faviconInfos += $newItem
+    # }
 }
+
 
 # Must be unique
 $faviconInfos = ($faviconInfos | Sort-Object -Property remotefile,localfile -Unique)
@@ -252,8 +252,10 @@ while ($true) {
                         $title_length = ($rssItem.title.Length, 30 | Measure-Object -Minimum).Minimum
                         $subtext_length = ($rssItem.title.Length, 140 | Measure-Object -Minimum).Minimum
                         # Get the current domain and find the local cached filename for the favicon.ico
-                        $domain = ([uri]$rssUrl).Scheme + "://" + ([uri]$rssUrl).Host
-                        $filePathToIcon = ($faviconInfos.localfile | Where-Object {$_ -like ("*$domain*")}) 
+                        $rssFeedHost = ([uri]$rssUrl).Host
+                        $rssFeedSheme = ([uri]$rssUrl).Scheme
+                        $filePathToIcon = ($faviconInfos.localfile | Where-Object {$_ -like ("*$rssfeedhost*")}) 
+                        $domain = $rssFeedSheme + "://" + $rssFeedHost
                         $myNotificationGroup = Get-NotificationGroup $rssUrl
                         Show-RssNotification -title $rssItem.title.SubString(0, $title_length) -subtext $rssItem.title.SubString(0, $subtext_length) -link $rssItem.link -toastAppLogoSourcePath $filePathToIcon -notificationgroup $myNotificationGroup -domain $domain
                         $notified += $rssItem.link
