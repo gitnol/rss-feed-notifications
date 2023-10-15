@@ -129,9 +129,19 @@ function Show-RssNotification {
     $toastAppLogo.Source = $toastAppLogoSourcePath
     $Binding1 = New-BTBinding -Children $Text1, $Text2 -AppLogoOverride $toastAppLogo
     $Visual1 = New-BTVisual -BindingGeneric $Binding1
-    $myToastHeader = New-BTHeader -Id $notificationgroup -Title $notificationgroup -Arguments $domain -ActivationType Protocol 
+    $myToastHeader = New-BTHeader -Id $notificationgroup -Title $notificationgroup -Arguments $domain -ActivationType Protocol
+    $action = {
+        try {
+            Write-Host "Event Activated!"
+            Write-Host("Event Arguments: " + $Args.Arguments) -ForegroundColor Green
+            # Write-Host("Event UserInput" + $Args.UserInput)
+        }
+        catch {
+            Write-Host "An error occurred within Show-RssNotification: $_"
+        }
+    }
     $Content1 = New-BTContent -Visual $Visual1 -Launch $link -ActivationType Protocol -Header $myToastHeader
-    Submit-BTNotification -Content $Content1
+    Submit-BTNotification -Content $Content1 -ActivatedAction $action
 }
 
 function Manage-JsonVariable {
@@ -224,38 +234,46 @@ Download-Image -faviconInfos $faviconInfos
 $notified = Manage-JsonVariable -Load -Folder $tempFolderPath -VariableName "notified"
 if (-not $notified) { $notified = @() }
 
+# On the first pass into the recheckEverySeconds loop.
+$recheckEverySecondsCounter = $recheckEverySeconds
+
 while ($true) {
     try {
-        # Needed to detect if some new notifications were generated. Based on this and if $true, then the $notified Variable is being saved each time.
-        $newNotifications = $false
-        foreach ($myRSSUrl in $ArrayOfrssUrls) {
-            if ($debug){Write-Host("Current RSS-Feed: $myRSSUrl")}
-            $rssUrl = $myRSSUrl
-            $RssItems = Get-NLatestRssItem -n $MaxNumberOfRSSItemsNotified -myRSSUrl $rssUrl
-            foreach ($rssItem in $RssItems) {
-                if (($rssItem.link -notin $notified) -and ($null -ne $rssItem.link)) {
-                    # notify
-                    $title_length = ($rssItem.title.Length, 30 | Measure-Object -Minimum).Minimum
-                    $subtext_length = ($rssItem.title.Length, 140 | Measure-Object -Minimum).Minimum
-                    # Get the current domain and find the local cached filename for the favicon.ico
-                    $domain = ([uri]$rssUrl).Host
-                    $filePathToIcon = ($faviconInfos.localfile | Where-Object {$_ -like ("*$domain*")}) 
-                    $myNotificationGroup = Get-NotificationGroup $rssUrl
-                    Show-RssNotification -title $rssItem.title.SubString(0, $title_length) -subtext $rssItem.title.SubString(0, $subtext_length) -link $rssItem.link -toastAppLogoSourcePath $filePathToIcon -notificationgroup $myNotificationGroup -domain $domain
-                    $notified += $rssItem.link
-                    $newNotifications = $true
-                } else {
-                    # do not notify
-                    if ($debug) { Write-Host (($rssItem.link) + " was already notified.") } else { Write-Host(".") -NoNewLine -ForegroundColor (Get-RandomColor)}
+        if ($recheckEverySecondsCounter -ge $recheckEverySeconds) {
+            # Needed to detect if some new notifications were generated. Based on this and if $true, then the $notified Variable is being saved each time.
+            $newNotifications = $false
+            foreach ($myRSSUrl in $ArrayOfrssUrls) {
+                if ($debug){Write-Host("Current RSS-Feed: $myRSSUrl")}
+                $rssUrl = $myRSSUrl
+                $RssItems = Get-NLatestRssItem -n $MaxNumberOfRSSItemsNotified -myRSSUrl $rssUrl
+                foreach ($rssItem in $RssItems) {
+                    if (($rssItem.link -notin $notified) -and ($null -ne $rssItem.link)) {
+                        # notify
+                        $title_length = ($rssItem.title.Length, 30 | Measure-Object -Minimum).Minimum
+                        $subtext_length = ($rssItem.title.Length, 140 | Measure-Object -Minimum).Minimum
+                        # Get the current domain and find the local cached filename for the favicon.ico
+                        $domain = ([uri]$rssUrl).Scheme + "://" + ([uri]$rssUrl).Host
+                        $filePathToIcon = ($faviconInfos.localfile | Where-Object {$_ -like ("*$domain*")}) 
+                        $myNotificationGroup = Get-NotificationGroup $rssUrl
+                        Show-RssNotification -title $rssItem.title.SubString(0, $title_length) -subtext $rssItem.title.SubString(0, $subtext_length) -link $rssItem.link -toastAppLogoSourcePath $filePathToIcon -notificationgroup $myNotificationGroup -domain $domain
+                        $notified += $rssItem.link
+                        $newNotifications = $true
+                    } else {
+                        # do not notify
+                        if ($debug) { Write-Host (($rssItem.link) + " was already notified.") } else { Write-Host(".") -NoNewLine -ForegroundColor (Get-RandomColor)}
+                    }
                 }
             }
-        }
 
-        if ($newNotifications) {
-            Manage-JsonVariable -Save -Folder $tempFolderPath -VariableName "notified"
+            if ($newNotifications) {
+                Manage-JsonVariable -Save -Folder $tempFolderPath -VariableName "notified"
+            }
+            $recheckEverySecondsCounter = 0 # Reset the counter
         }
-
-        Start-Sleep -Seconds $recheckEverySeconds  # Check for new content every 5 minutes
+        Start-Sleep -Seconds 1
+        $recheckEverySecondsCounter++
+        # Start-Sleep -Seconds $recheckEverySeconds  # Check for new content every 5 minutes
+    
     }
     catch {
         Write-Host "An error occurred: $_"
