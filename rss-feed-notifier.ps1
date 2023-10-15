@@ -271,8 +271,12 @@ while ($true) {
             $recheckEverySecondsCounter = 0 # Reset the counter
         }
         Start-Sleep -Seconds 1
+        
+        # Display the progress bar
+        $percentComplete = ($recheckEverySecondsCounter / $recheckEverySeconds) * 100
+        Write-Progress -PercentComplete $percentComplete -Status "in $($recheckEverySeconds - $recheckEverySecondsCounter) seconds" -Activity "Waiting for next run" -CurrentOperation "Seconds left $($recheckEverySeconds - $recheckEverySecondsCounter)"
+
         $recheckEverySecondsCounter++
-        # Start-Sleep -Seconds $recheckEverySeconds  # Check for new content every 5 minutes
     
     }
     catch {
