@@ -1,5 +1,5 @@
 # RSS-Feed-Notifications
-Windows notifications about new items in rss feeds with powershell and BurnToast.
+Windows notifications about new items in rss feeds with powershell 7.x and BurnToast.
 
 The script downloads the RSS feed infos every 300 seconds and creates a Windows notification of the rss feed item, which has not already been notified.
 
