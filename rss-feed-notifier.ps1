@@ -3,17 +3,24 @@
 # I am not the owner of the blog https://blog.fefe.de
 # Owner of the blog is Felix von Leitner (https://de.wikipedia.org/wiki/Fefes_Blog)
 
-# Check if BurntToast module is installed, if not, install it
-if (-not (Get-Module -Name BurntToast -ListAvailable)) {
-    Write-Host "Installing BurntToast module..."
-    Install-Module -Name BurntToast -Force -SkipPublisherCheck -Scope CurrentUser -Confirm:$false
-}
 
-# Import the BurntToast module
-Import-Module -Name BurntToast -Force
-# if you get the error "Assembly with same name is already loaded" try "Update-Module BurntToast"
-# With the following command you see, which assemblies are currently loaded and where they are located
-# [System.AppDomain]::CurrentDomain.GetAssemblies() | Where-Object Location | Sort-Object -Property FullName | Select-Object -Property FullName, Location, GlobalAssemblyCache, IsFullyTrusted | Out-GridView
+
+try {
+    # Check if BurntToast module is installed, if not, install it
+    if (-not (Get-Module -Name BurntToast -ListAvailable)) {
+        Write-Host "Installing BurntToast module..."
+        Install-Module -Name BurntToast -Force -SkipPublisherCheck -Scope CurrentUser -Confirm:$false
+    }
+    # Import the BurntToast module  --> uncomment it, if add-type below is not functioning.
+    # Import-Module -Name BurntToast -Force
+    # if you get the error "WinRT.Runtime.dll: Assembly with same name is already loaded" try to uncomment it.
+    # A newer Version is present and the PresentationFrameWork can be loaded.
+    # With the following command you see, which assemblies are currently loaded and where they are located
+    # [System.AppDomain]::CurrentDomain.GetAssemblies() | Where-Object Location | Sort-Object -Property FullName | Select-Object -Property FullName, Location, GlobalAssemblyCache, IsFullyTrusted | Out-GridView    
+}
+catch {
+    Write-Error "An Error occured :("
+}
 
 # Load the required assembly
 Add-Type -AssemblyName PresentationFramework
