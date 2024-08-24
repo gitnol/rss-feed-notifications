@@ -11,6 +11,9 @@ if (-not (Get-Module -Name BurntToast -ListAvailable)) {
 
 # Import the BurntToast module
 Import-Module -Name BurntToast -Force
+# if you get the error "Assembly with same name is already loaded" try "Update-Module BurntToast"
+# With the following command you see, which assemblies are currently loaded and where they are located
+# [System.AppDomain]::CurrentDomain.GetAssemblies() | Where-Object Location | Sort-Object -Property FullName | Select-Object -Property FullName, Location, GlobalAssemblyCache, IsFullyTrusted | Out-GridView
 
 # Load the required assembly
 Add-Type -AssemblyName PresentationFramework
@@ -22,7 +25,7 @@ $debug = [bool]$false
 $ArrayOfrssUrls = @()
 $ArrayOfrssUrls += "https://blog.fefe.de/rss.xml"
 # $ArrayOfrssUrls += "https://www.stern.de/feed/standard/all"
-$ArrayOfrssUrls += "https://www.heise.de/security/rss/news.rdf"
+# $ArrayOfrssUrls += "https://www.heise.de/security/rss/news.rdf"
 $ArrayOfrssUrls += "https://www.heise.de/security/rss/alert-news.rdf"
 $ArrayOfrssUrls += "https://www.heise.de/rss/heise-top-alexa.xml"
 
