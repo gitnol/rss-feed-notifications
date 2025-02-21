@@ -90,7 +90,7 @@ function Get-NLatestRssItem {
         $rss = Invoke-RestMethod -Uri $myRSSUrl
         If ($debug) { $rss }
         for ($i = 0; $i -lt $n; $i++) {
-            $i
+            # $i # commented, because it leads to an error if you throw something in the powershell pipeline :(
             if ($rss[$i]) {
                 $erg += [PSCustomObject]@{
                     title = ($rss[$i]).title
@@ -256,6 +256,7 @@ while ($true) {
                 if ($debug){Write-Host("Current RSS-Feed: $myRSSUrl")}
                 $rssUrl = $myRSSUrl
                 $RssItems = Get-NLatestRssItem -n $MaxNumberOfRSSItemsNotified -myRSSUrl $rssUrl
+                # Write-Host($RssItems) - -ForegroundColor Green
                 foreach ($rssItem in $RssItems) {
                     if (($rssItem.link -notin $notified) -and ($null -ne $rssItem.link)) {
                         # notify
@@ -270,7 +271,9 @@ while ($true) {
                         # Generate notifcation group based on the rssUrl
                         $myNotificationGroup = Get-NotificationGroup $rssUrl
                         # Finally, show the notification.
-                        Show-RssNotification -title $rssItem.title.SubString(0, $title_length) -subtext $rssItem.title.SubString(0, $subtext_length) -link $rssItem.link -toastAppLogoSourcePath $filePathToIcon -notificationgroup $myNotificationGroup -domain $domain
+                        if ($title_length -gt 1){
+                            Show-RssNotification -title $rssItem.title.SubString(0, $title_length) -subtext $rssItem.title.SubString(0, $subtext_length) -link $rssItem.link -toastAppLogoSourcePath $filePathToIcon -notificationgroup $myNotificationGroup -domain $domain
+                        }
                         # Remember the link from which a notification has been generated
                         $notified += $rssItem.link
                         $newNotifications = $true
