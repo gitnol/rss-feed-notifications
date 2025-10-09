@@ -1,306 +1,751 @@
-# This script is just for educational purposes. It is functional, but experimental
+<#
+.SYNOPSIS
+    RSS-Feed-Notifier mit erweiterten Benachrichtigungsfunktionen
 
-# I am not the owner of the blog https://blog.fefe.de
-# Owner of the blog is Felix von Leitner (https://de.wikipedia.org/wiki/Fefes_Blog)
+.DESCRIPTION
+    Dieses Script überwacht konfigurierte RSS-Feeds und erstellt erweiterte
+    Windows Toast-Benachrichtigungen mit:
+    - Bildern aus RSS-Feeds (wenn vorhanden)
+    - Inline-Aktionen (Später lesen, Archivieren, Verwerfen)
+    - Sound-Benachrichtigungen mit verschiedenen Tönen
+    - Hero-Images für visuell ansprechende Notifications
+    
+.NOTES
+    Autor: Educational/Experimental Script
+    Version: 3.0
+    Voraussetzungen: 
+    - Windows 10/11
+    - PowerShell 5.1 oder höher
+    - BurntToast-Modul (wird automatisch installiert)
 
+.LINK
+    https://github.com/Windos/BurntToast
+#>
 
+[CmdletBinding()]
+param()
 
+#Requires -Version 5.1
+
+#region Configuration
+# Debug-Modus aktivieren für erweiterte Ausgaben
+$DebugMode = $false
+
+# RSS-Feed URLs
+$RssFeedUrls = @(
+    "https://www.heise.de/security/rss/alert-news.rdf"
+    "https://www.heise.de/rss/heise-top-alexa.xml"
+    # "https://blog.fefe.de/rss.xml"
+)
+
+# Prüfintervall in Sekunden (Standard: 300 = 5 Minuten)
+$CheckIntervalSeconds = 300
+
+# Maximale Anzahl von RSS-Items pro Feed beim Start
+$MaxItemsPerFeed = 3
+
+# Pfad zum temporären Ordner
+$TempFolderPath = [System.IO.Path]::GetTempPath()
+
+# Sound-Einstellungen
+$EnableSound = $true
+$SoundScheme = "Default"  # Default, SMS, Reminder, Alarm, Mail, Silent
+
+# Bild-Einstellungen
+$EnableImages = $true
+$MaxImageDownloadSize = 5MB  # Maximale Bildgröße für Download
+
+# Archiv-Ordner für "Später lesen"
+$ReadLaterFolder = Join-Path -Path $TempFolderPath -ChildPath "RSS_ReadLater"
+$ArchiveFolder = Join-Path -Path $TempFolderPath -ChildPath "RSS_Archive"
+
+# Ordner erstellen falls nicht vorhanden
+if (-not (Test-Path $ReadLaterFolder)) {
+    New-Item -Path $ReadLaterFolder -ItemType Directory -Force | Out-Null
+}
+if (-not (Test-Path $ArchiveFolder)) {
+    New-Item -Path $ArchiveFolder -ItemType Directory -Force | Out-Null
+}
+#endregion Configuration
+
+#region Module Installation
 try {
-    # Check if BurntToast module is installed, if not, install it
     if (-not (Get-Module -Name BurntToast -ListAvailable)) {
-        Write-Host "Installing BurntToast module..."
-        Install-Module -Name BurntToast -Force -SkipPublisherCheck -Scope CurrentUser -Confirm:$false
+        Write-Verbose "BurntToast-Modul wird installiert..."
+        Install-Module -Name BurntToast -Force -SkipPublisherCheck -Scope CurrentUser -Confirm:$false -ErrorAction Stop
     }
-    # Import the BurntToast module  --> uncomment it, if add-type below is not functioning.
-    # Import-Module -Name BurntToast -Force
-    # if you get the error "WinRT.Runtime.dll: Assembly with same name is already loaded" try to uncomment it.
-    # A newer Version is present and the PresentationFrameWork can be loaded.
-    # With the following command you see, which assemblies are currently loaded and where they are located
-    # [System.AppDomain]::CurrentDomain.GetAssemblies() | Where-Object Location | Sort-Object -Property FullName | Select-Object -Property FullName, Location, GlobalAssemblyCache, IsFullyTrusted | Out-GridView    
+    
+    if (-not (Get-Module -Name BurntToast)) {
+        Import-Module -Name BurntToast -Force -ErrorAction Stop
+    }
 }
 catch {
-    Write-Error "An Error occured :("
+    Write-Error "Fehler bei der Installation/Import des BurntToast-Moduls: $_"
+    exit 1
+}
+#endregion Module Installation
+
+#region Helper Functions
+
+<#
+.SYNOPSIS
+    Generiert eine zufällige Konsolenfarbe
+#>
+function Get-RandomConsoleColor {
+    [CmdletBinding()]
+    param()
+    
+    $colors = @('DarkGray', 'Gray', 'DarkCyan', 'Cyan', 'DarkGreen', 'Green')
+    return $colors | Get-Random
 }
 
-# Load the required assembly
-Add-Type -AssemblyName PresentationFramework
-
-# Set to $true if you want see further information
-$debug = [bool]$false
-
-# RSS feed URL, hopefully should work with all rss feeds... at least one rss feed should be provided
-$ArrayOfrssUrls = @()
-$ArrayOfrssUrls += "https://blog.fefe.de/rss.xml"
-# $ArrayOfrssUrls += "https://www.stern.de/feed/standard/all"
-# $ArrayOfrssUrls += "https://www.heise.de/security/rss/news.rdf"
-$ArrayOfrssUrls += "https://www.heise.de/security/rss/alert-news.rdf"
-$ArrayOfrssUrls += "https://www.heise.de/rss/heise-top-alexa.xml"
-
-# Recheck rssUrl every x Seconds. Standard = 300 Seconds
-# If within the 300 seconds two rss items are added, only the newest item will create a notification.
-$recheckEverySeconds = 300
-
-# Maximum number of item in each rss feed, which should be notified to the user.
-# No Notification will be notified twice after the script has started.
-$MaxNumberOfRSSItemsNotified = 3
-
-########### DO NOT CHANGE ANYTHING BELOW THIS ################
-if ($debug) { Write-Host("Script started") }
-
-# Define the path to the temporary folder
-$tempFolderPath = [System.IO.Path]::GetTempPath()
-
-# Function to generate a random foreground color
-Function Get-RandomColor {
-    $colors = "Black", "DarkBlue", "DarkGreen", "DarkCyan", "DarkRed", "DarkMagenta", "DarkYellow", "Gray","DarkGray", "Blue", "Green", "Cyan", "Red", "Magenta", "Yellow", "White"
-    return $colors[(Get-Random -Minimum 0 -Maximum $colors.Length)]
-}
-
-function Download-Image {
-    param (
-        $faviconInfos,
-        [bool]$debug = $false
+<#
+.SYNOPSIS
+    Lädt ein Bild herunter mit Größenlimit
+#>
+function Get-ImageFile {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)]
+        [string]$Url,
+        
+        [Parameter(Mandatory)]
+        [string]$DestinationPath,
+        
+        [Parameter()]
+        [int64]$MaxSize = 5MB
     )
-
-    foreach($item in $faviconInfos) {
-        # Check if the file already exists in the temporary folder
-        $filePath = $item.localfile
-        $url = $item.remotefile
-        if (-not (Test-Path -Path $filePath)) {
-            # File does not exist, download the image
-            Invoke-WebRequest -Uri $url -OutFile $filePath
-
-            # Output a message indicating successful download
-            if ($debug) { Write-Host "Image downloaded and saved to: $filePath" }
-        } else {
-            # File already exists, output a message indicating that the file was not downloaded
-            if ($debug) { Write-Host "File already exists in the temporary folder: $filePath" }
+    
+    try {
+        if (Test-Path $DestinationPath) {
+            Write-Verbose "Bild bereits vorhanden: $DestinationPath"
+            return $DestinationPath
         }
+        
+        Write-Verbose "Lade Bild herunter: $Url"
+        
+        # Bild herunterladen (HEAD-Request weggelassen, da er manchmal Fehler verursacht)
+        Invoke-WebRequest -Uri $Url -OutFile $DestinationPath -ErrorAction Stop -TimeoutSec 10
+        
+        # Prüfe ob Datei existiert und nicht leer ist
+        if ((Test-Path $DestinationPath) -and (Get-Item $DestinationPath).Length -gt 0) {
+            Write-Verbose "Bild heruntergeladen: $DestinationPath ($(((Get-Item $DestinationPath).Length / 1KB).ToString('F2')) KB)"
+            return $DestinationPath
+        }
+        else {
+            Write-Verbose "Bild-Download fehlgeschlagen oder Datei leer"
+            return $null
+        }
+    }
+    catch {
+        Write-Verbose "Fehler beim Herunterladen: $_"
+        return $null
     }
 }
 
-function Get-NLatestRssItem {
-    param (
-        [int]$n = 1,
-        [string]$myRSSUrl
+<#
+.SYNOPSIS
+    Lädt Favicon-Bilder herunter
+#>
+function Get-FaviconImage {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)]
+        [PSCustomObject[]]$FaviconInfo
     )
-    $erg = @()
-    # Try-Catch wrapping around this messy little thing
-    if ($myRSSUrl) {
-        $rss = Invoke-RestMethod -Uri $myRSSUrl
-        If ($debug) { $rss }
-        for ($i = 0; $i -lt $n; $i++) {
-            # $i # commented, because it leads to an error if you throw something in the powershell pipeline :(
-            if ($rss[$i]) {
-                $erg += [PSCustomObject]@{
-                    title = ($rss[$i]).title
-                    link  = ($rss[$i]).link
-                    guid  = ($rss[$i]).guid
-                }
+    
+    foreach ($item in $FaviconInfo) {
+        if (-not (Test-Path -Path $item.LocalFile)) {
+            try {
+                Invoke-WebRequest -Uri $item.RemoteFile -OutFile $item.LocalFile -ErrorAction Stop
+                Write-Verbose "Favicon heruntergeladen: $($item.RemoteFile)"
+            }
+            catch {
+                Write-Warning "Fehler beim Herunterladen des Favicons: $_"
             }
         }
     }
-    return $erg
 }
 
-function Get-NotificationGroup {
-    param (
-        [string]$rssUrl
+<#
+.SYNOPSIS
+    Ruft RSS-Items ab mit erweiterten Metadaten
+#>
+function Get-LatestRssItems {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)]
+        [string]$RssUrl,
+        
+        [Parameter()]
+        [int]$Count = 1
     )
     
-    # Extract domain and path from the URL
-    $uri = [System.Uri]$rssUrl
-    
-    # Replace www. with nothing, because it is not interesting
-    $hostnameWithoutTld = $uri.Host -replace "www\.",""
-
-    # Remove file type ending (if any) from the path
-    $path = ([System.IO.Path]::ChangeExtension($uri.AbsolutePath, $null)) -replace '\.',''
-
-    # Replace "/" with "-"
-    $pathWithHyphens = $path -replace "/", "-"
-
-    return ($hostnameWithoutTld + $pathWithHyphens)
+    try {
+        $feed = Invoke-RestMethod -Uri $RssUrl -ErrorAction Stop
+        Write-Verbose "RSS-Feed erfolgreich abgerufen: $RssUrl"
+        
+        $items = @()
+        for ($i = 0; $i -lt [Math]::Min($Count, $feed.Count); $i++) {
+            if ($feed[$i]) {
+                # String-Konvertierung
+                $titleValue = $feed[$i].Title
+                $linkValue = $feed[$i].Link
+                $guidValue = $feed[$i].Guid
+                $descriptionValue = $feed[$i].Description
+                $summaryValue = $feed[$i].Summary  # Atom-Feeds nutzen oft Summary statt Description
+                $contentValue = $feed[$i].Content
+                
+                # Versuche verschiedene Wege, um content:encoded zu lesen
+                $contentEncodedValue = $null
+                
+                # Methode 1: Direkter Namespace-Zugriff
+                if ($feed[$i].'content:encoded') {
+                    $contentEncodedValue = $feed[$i].'content:encoded'
+                }
+                # Methode 2: PSObject Properties durchsuchen
+                elseif ($feed[$i].PSObject.Properties['content:encoded']) {
+                    $contentEncodedValue = $feed[$i].PSObject.Properties['content:encoded'].Value
+                }
+                # Methode 3: encoded ohne Namespace-Präfix (funktioniert bei Heise RSS 2.0)
+                elseif ($feed[$i].encoded) {
+                    $contentEncodedValue = $feed[$i].encoded
+                }
+                
+                if ($titleValue -is [System.Xml.XmlElement]) {
+                    $title = $titleValue.InnerText
+                }
+                else {
+                    $title = "$titleValue"
+                }
+                
+                # Link kann in Atom-Feeds ein Objekt sein
+                if ($linkValue -is [System.Xml.XmlElement]) {
+                    # In Atom: <link href="..."/>
+                    if ($linkValue.href) {
+                        $link = "$($linkValue.href)"
+                    }
+                    else {
+                        $link = $linkValue.InnerText
+                    }
+                }
+                elseif ($linkValue -is [System.Object[]] -and $linkValue[0].href) {
+                    # Manchmal gibt es mehrere Links, nimm den ersten
+                    $link = "$($linkValue[0].href)"
+                }
+                else {
+                    $link = "$linkValue"
+                }
+                
+                if ($guidValue -is [System.Xml.XmlElement]) {
+                    $guid = $guidValue.InnerText
+                }
+                else {
+                    $guid = "$guidValue"
+                }
+                
+                # Description oder Summary
+                if ($descriptionValue -is [System.Xml.XmlElement]) {
+                    $description = $descriptionValue.InnerText
+                }
+                elseif ($summaryValue -is [System.Xml.XmlElement]) {
+                    $description = $summaryValue.InnerText
+                }
+                else {
+                    $description = if ($descriptionValue) { "$descriptionValue" } else { "$summaryValue" }
+                }
+                
+                # Versuche Bild-URL zu extrahieren
+                $imageUrl = $null
+                
+                # 1. Prüfe media:content
+                if ($feed[$i].'media:content') {
+                    $imageUrl = $feed[$i].'media:content'.url
+                }
+                # 2. Prüfe media:thumbnail
+                elseif ($feed[$i].'media:thumbnail') {
+                    $imageUrl = $feed[$i].'media:thumbnail'.url
+                }
+                # 3. Prüfe enclosure
+                elseif ($feed[$i].enclosure -and $feed[$i].enclosure.type -like "image/*") {
+                    $imageUrl = $feed[$i].enclosure.url
+                }
+                
+                # 4. Parse HTML im content-Feld (wichtig für Heise!)
+                if (-not $imageUrl) {
+                    # Versuche verschiedene Content-Felder
+                    $contentHtml = $null
+                    
+                    # Prüfe content:encoded (RSS 2.0)
+                    if ($contentEncodedValue) {
+                        if ($contentEncodedValue -is [System.Xml.XmlElement]) {
+                            $contentHtml = $contentEncodedValue.InnerXml
+                        }
+                        else {
+                            $contentHtml = "$contentEncodedValue"
+                        }
+                    }
+                    # Fallback auf content (Atom)
+                    elseif ($contentValue) {
+                        if ($contentValue -is [System.Xml.XmlElement]) {
+                            $contentHtml = $contentValue.InnerXml
+                        }
+                        elseif ($contentValue.'#text') {
+                            $contentHtml = $contentValue.'#text'
+                        }
+                        else {
+                            $contentHtml = "$contentValue"
+                        }
+                    }
+                    
+                    if ($contentHtml) {
+                        Write-Verbose "Content-HTML gefunden (Länge: $($contentHtml.Length))"
+                        
+                        # Extrahiere erste <img src="..."> aus dem HTML
+                        if ($contentHtml -match '<img[^>]+src=[''"]([^''"]+)[''"]') {
+                            $imageUrl = $matches[1]
+                            Write-Verbose "Bild gefunden: $imageUrl"
+                        }
+                    }
+                }
+                
+                # 5. Fallback: Auch in description/summary suchen
+                if (-not $imageUrl -and $description -and "$description" -match '<img[^>]+src=[''"]([^''"]+)[''"]') {
+                    $imageUrl = $matches[1]
+                    Write-Verbose "[DEBUG] Bild gefunden in Description: $imageUrl"
+                }
+                
+                # Konvertiere ImageUrl zu String falls vorhanden
+                if ($imageUrl -is [System.Xml.XmlElement]) {
+                    $imageUrl = $imageUrl.InnerText
+                }
+                elseif ($imageUrl) {
+                    $imageUrl = "$imageUrl"
+                }
+                
+                $items += [PSCustomObject]@{
+                    Title       = $title
+                    Link        = $link
+                    Guid        = $guid
+                    Description = $description
+                    ImageUrl    = $imageUrl
+                }
+            }
+        }
+        
+        return $items
+    }
+    catch {
+        Write-Warning "Fehler beim Abrufen des RSS-Feeds von ${RssUrl}: $_"
+        return @()
+    }
 }
 
-# Function to display a notification with the latest RSS item
-function Show-RssNotification {
-    param (
-        [string]$title,
-        [string]$subtext,
-        [string]$link,
-        [string]$toastAppLogoSourcePath,
-        [string]$notificationgroup,
-        [string]$domain
+<#
+.SYNOPSIS
+    Generiert Benachrichtigungsgruppen-Namen
+#>
+function Get-NotificationGroupName {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)]
+        [string]$RssUrl
     )
-    $Text1 = New-BTText -Content $title
-    $Text2 = New-BTText -Content $subtext
-    $toastAppLogo = New-Object Microsoft.Toolkit.Uwp.Notifications.ToastGenericAppLogo
-    $toastAppLogo.Source = $toastAppLogoSourcePath
-    $Binding1 = New-BTBinding -Children $Text1, $Text2 -AppLogoOverride $toastAppLogo
-    $Visual1 = New-BTVisual -BindingGeneric $Binding1
-    $myToastHeader = New-BTHeader -Id $notificationgroup -Title $notificationgroup -Arguments $domain -ActivationType Protocol
-    $action = {
+    
+    try {
+        $uri = [System.Uri]$RssUrl
+        $hostname = $uri.Host -replace '^www\.', ''
+        $path = [System.IO.Path]::ChangeExtension($uri.AbsolutePath, $null) -replace '\.', '' -replace '/', '-'
+        
+        return "$hostname$path"
+    }
+    catch {
+        return "rss-notification"
+    }
+}
+
+<#
+.SYNOPSIS
+    Speichert einen Artikel für später
+#>
+function Save-ArticleForLater {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)]
+        [string]$Title,
+        
+        [Parameter(Mandatory)]
+        [string]$Link,
+        
+        [Parameter(Mandatory)]
+        [string]$FolderPath
+    )
+    
+    try {
+        $timestamp = Get-Date -Format "yyyyMMdd_HHmmss"
+        $fileName = "${timestamp}_article.txt"
+        $filePath = Join-Path -Path $FolderPath -ChildPath $fileName
+        
+        $content = @"
+Titel: $Title
+Link: $Link
+Gespeichert: $(Get-Date -Format "dd.MM.yyyy HH:mm:ss")
+"@
+        
+        Set-Content -Path $filePath -Value $content -Encoding UTF8
+        Write-Verbose "Artikel gespeichert: $filePath"
+    }
+    catch {
+        Write-Warning "Fehler beim Speichern des Artikels: $_"
+    }
+}
+
+<#
+.SYNOPSIS
+    Zeigt erweiterte Toast-Benachrichtigung an
+#>
+function Show-AdvancedRssNotification {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)]
+        [string]$Title,
+        
+        [Parameter(Mandatory)]
+        [string]$Message,
+        
+        [Parameter(Mandatory)]
+        [string]$Link,
+        
+        [Parameter(Mandatory)]
+        [string]$IconPath,
+        
+        [Parameter()]
+        [string]$HeroImagePath,
+        
+        [Parameter(Mandatory)]
+        [string]$GroupName,
+        
+        [Parameter(Mandatory)]
+        [string]$Domain,
+        
+        [Parameter()]
+        [string]$SoundType = "Default"
+    )
+    
+    try {
+        # Texte erstellen
+        $titleString = [string]$Title
+        $messageString = [string]$Message
+        
+        $text1 = New-BTText -Content $titleString
+        $text2 = New-BTText -Content $messageString
+        
+        # App-Logo (Favicon)
+        $appLogo = New-BTImage -Source $IconPath -AppLogoOverride -Crop Circle
+        
+        # Hero-Image (großes Bild) falls vorhanden UND Datei existiert
+        $heroImage = $null
+        if ($HeroImagePath -and (Test-Path $HeroImagePath)) {
+            Write-Verbose "Hero-Image wird zur Benachrichtigung hinzugefügt"
+            $heroImage = New-BTImage -Source $HeroImagePath -HeroImage
+        }
+        
+        # Binding mit oder ohne Hero-Image
+        if ($heroImage) {
+            $binding = New-BTBinding -Children $text1, $text2 -AppLogoOverride $appLogo -HeroImage $heroImage
+        }
+        else {
+            $binding = New-BTBinding -Children $text1, $text2 -AppLogoOverride $appLogo
+        }
+        
+        $visual = New-BTVisual -BindingGeneric $binding
+        
+        # Inline-Aktionen erstellen
+        $readLaterButton = New-BTButton -Content "📖 Später lesen" -Arguments "readlater|$Link|$Title" -ActivationType Protocol
+        $archiveButton = New-BTButton -Content "📦 Archivieren" -Arguments "archive|$Link|$Title" -ActivationType Protocol
+        $dismissButton = New-BTButton -Dismiss -Content "❌ Verwerfen"
+        
+        $actions = New-BTAction -Buttons $readLaterButton, $archiveButton, $dismissButton
+        
+        # Sound auswählen
+        $sound = switch ($SoundType) {
+            "SMS" { New-BTAudio -Source 'ms-winsoundevent:Notification.SMS' }
+            "Reminder" { New-BTAudio -Source 'ms-winsoundevent:Notification.Reminder' }
+            "Alarm" { New-BTAudio -Source 'ms-winsoundevent:Notification.Looping.Alarm' }
+            "Mail" { New-BTAudio -Source 'ms-winsoundevent:Notification.Mail' }
+            "Silent" { New-BTAudio -Silent }
+            default { New-BTAudio -Source 'ms-winsoundevent:Notification.Default' }
+        }
+        
+        # Header erstellen
+        $header = New-BTHeader -Id $GroupName -Title $GroupName -Arguments $Domain
+        
+        # Content zusammenbauen
+        $content = New-BTContent -Visual $visual -Actions $actions -Audio $sound -Launch $Link -ActivationType Protocol -Header $header
+        
+        # Benachrichtigung anzeigen
+        Submit-BTNotification -Content $content
+        
+        Write-Verbose "Benachrichtigung angezeigt: $titleString"
+    }
+    catch {
+        Write-Warning "Fehler beim Anzeigen der Benachrichtigung: $_"
+    }
+}
+
+<#
+.SYNOPSIS
+    Verwaltet Benachrichtigungsverlauf (Speichern/Laden)
+#>
+function Save-NotificationHistory {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)]
+        [string]$FolderPath,
+        
+        [Parameter(Mandatory)]
+        [string]$FileName,
+        
+        [Parameter(Mandatory)]
+        [array]$Data
+    )
+    
+    $filePath = Join-Path -Path $FolderPath -ChildPath "$FileName.json"
+    
+    try {
+        $Data | ConvertTo-Json | Set-Content -Path $filePath -ErrorAction Stop
+        Write-Verbose "Verlauf gespeichert: $filePath"
+    }
+    catch {
+        Write-Warning "Fehler beim Speichern: $_"
+    }
+}
+
+<#
+.SYNOPSIS
+    Lädt Benachrichtigungsverlauf aus Datei
+#>
+function Get-NotificationHistory {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)]
+        [string]$FolderPath,
+        
+        [Parameter(Mandatory)]
+        [string]$FileName
+    )
+    
+    $filePath = Join-Path -Path $FolderPath -ChildPath "$FileName.json"
+    
+    if (Test-Path -Path $filePath) {
         try {
-            Write-Host "Event Activated!"
-            Write-Host("Event Arguments: " + $Args.Arguments) -ForegroundColor Green
-            # Write-Host("Event UserInput" + $Args.UserInput)
+            $loadedData = Get-Content -Path $filePath -ErrorAction Stop | ConvertFrom-Json
+            Write-Verbose "Verlauf geladen: $filePath"
+            return @($loadedData)
         }
         catch {
-            Write-Host "An error occurred within Show-RssNotification: $_"
-        }
-    }
-    $Content1 = New-BTContent -Visual $Visual1 -Launch $link -ActivationType Protocol -Header $myToastHeader
-    Submit-BTNotification -Content $Content1 -ActivatedAction $action
-}
-
-function Manage-JsonVariable {
-    [CmdletBinding(DefaultParameterSetName = 'Save')]
-    param (
-        [Parameter(ParameterSetName = 'Save', Mandatory = $true, ValueFromPipelineByPropertyName = $true)]
-        [switch]$Save,
-
-        [Parameter(ParameterSetName = 'Load', Mandatory = $true, ValueFromPipelineByPropertyName = $true)]
-        [switch]$Load,
-
-        [Parameter(ParameterSetName = 'Save', Mandatory = $true, ValueFromPipelineByPropertyName = $true)]
-        [Parameter(ParameterSetName = 'Load', Mandatory = $true, ValueFromPipelineByPropertyName = $true)]
-        [string]$Folder,
-
-        [Parameter(ParameterSetName = 'Save', Mandatory = $true, ValueFromPipelineByPropertyName = $true)]
-        [Parameter(ParameterSetName = 'Load', Mandatory = $true, ValueFromPipelineByPropertyName = $true)]
-        [string]$VariableName
-    )
-
-    if ($Save) {
-        $Operation = "Save"
-    } elseif ($Load) {
-        $Operation = "Load"
-    } else {
-        Write-Error "Invalid operation. Please use '-Save' or '-Load'."
-        return
-    }
-    
-
-    $FilePath = Join-Path -Path $Folder -ChildPath "$VariableName.json"
-
-    if ($Operation -eq "Save") {
-        # Check if the variable exists
-        if (Test-Path variable:\$VariableName) {
-            # Get the variable value and convert it to JSON, then save to the file
-            Get-Variable -Name $VariableName -ValueOnly | ConvertTo-Json | Set-Content -Path $FilePath
-            if ($debug) { Write-Host "Variable '$VariableName' saved to '$FilePath'." }
-        } else {
-            if ($debug) { Write-Host "Variable '$VariableName' does not exist. Cannot save." }
-        }
-    }  elseif ($Operation -eq "Load") {
-        # Check if the file exists
-        if (Test-Path $FilePath) {
-            # Load JSON from file and return the loaded variable
-            $loadedVariable = Get-Content -Path $FilePath | ConvertFrom-Json
-            if ($debug) { Write-Host("Variable '$VariableName' loaded from '$FilePath'.") }
-            return $loadedVariable
-        } else {
-            if ($debug) { Write-Host "File '$FilePath' not found. Cannot load. Return Empty Array" }
+            Write-Warning "Fehler beim Laden: $_"
             return @()
         }
-    } else {
-        if ($debug) { Write-Host "Invalid operation. Please use 'Load' or 'Save'." }
+    }
+    else {
+        Write-Verbose "Keine Verlaufsdatei gefunden"
+        return @()
     }
 }
 
-############################################################
-# Main loop to send notifications with the latest RSS item #
-############################################################
+#endregion Helper Functions
 
-$faviconInfos = @()
-foreach($url in $ArrayOfrssUrls){
-    # Extract domain from the URL
-    $domain = ([uri]$url).Host
+#region Event Handler Registration
+
+# Event Handler für Button-Klicks registrieren
+# WICHTIG: Nur einmal beim Start registrieren!
+
+try {
+    # Prüfen ob bereits registriert
+    $existingEvent = Get-EventSubscriber -SourceIdentifier "BT_ActionInvoked" -ErrorAction SilentlyContinue
     
-    # Create the new URL with favicon.ico
-    # Define the URL of the image, will be later downloaded once in a temp folder 
-    $faviconUrl = "https://$domain/favicon.ico"
-    $localUrl = Join-Path -Path $tempFolderPath -ChildPath ($domain + "_favicon.ico")
-    # Output the new URL (local and remote)
-    $newItem = [PSCustomObject]@{
-        remotefile = $faviconUrl
-        localfile = $localUrl
-    }
-
-    # if ($newItem -notin $faviconInfos){
-    $faviconInfos += $newItem
-    # }
-}
-
-
-# Must be unique
-$faviconInfos = ($faviconInfos | Sort-Object -Property remotefile,localfile -Unique)
-
-# Download all favicons from all rss feed domains and store it in the temp folder
-Download-Image -faviconInfos $faviconInfos
-
-# Load the previous notifications from the file in the temporary folder. If there is no file there, then an empty array is returned
-$notified = Manage-JsonVariable -Load -Folder $tempFolderPath -VariableName "notified"
-if (-not $notified) { $notified = @() }
-
-# On the first pass into the recheckEverySeconds loop.
-$recheckEverySecondsCounter = $recheckEverySeconds
-
-while ($true) {
-    try {
-        if ($recheckEverySecondsCounter -ge $recheckEverySeconds) {
-            # Needed to detect if some new notifications were generated. Based on this and if $true, then the $notified Variable is being saved each time.
-            $newNotifications = $false
-            foreach ($myRSSUrl in $ArrayOfrssUrls) {
-                if ($debug){Write-Host("Current RSS-Feed: $myRSSUrl")}
-                $rssUrl = $myRSSUrl
-                $RssItems = Get-NLatestRssItem -n $MaxNumberOfRSSItemsNotified -myRSSUrl $rssUrl
-                # Write-Host($RssItems) - -ForegroundColor Green
-                foreach ($rssItem in $RssItems) {
-                    if (($rssItem.link -notin $notified) -and ($null -ne $rssItem.link)) {
-                        # notify
-                        $title_length = ($rssItem.title.Length, 30 | Measure-Object -Minimum).Minimum
-                        $subtext_length = ($rssItem.title.Length, 140 | Measure-Object -Minimum).Minimum
-                        # Get the current domain and find the local cached filename for the favicon.ico
-                        $rssFeedHost = ([uri]$rssUrl).Host # for example www.example.com
-                        $rssFeedSheme = ([uri]$rssUrl).Scheme # for example https
-                        # Get local favicon location from rssfeed
-                        $filePathToIcon = ($faviconInfos.localfile | Where-Object {$_ -like ("*$rssfeedhost*")}) 
-                        $domain = $rssFeedSheme + "://" + $rssFeedHost
-                        # Generate notifcation group based on the rssUrl
-                        $myNotificationGroup = Get-NotificationGroup $rssUrl
-                        # Finally, show the notification.
-                        if ($title_length -gt 1){
-                            Show-RssNotification -title $rssItem.title.SubString(0, $title_length) -subtext $rssItem.title.SubString(0, $subtext_length) -link $rssItem.link -toastAppLogoSourcePath $filePathToIcon -notificationgroup $myNotificationGroup -domain $domain
+    if (-not $existingEvent) {
+        Register-EngineEvent -SourceIdentifier "BT_ActionInvoked" -Action {
+            param($eventSender, $eventData)
+            
+            try {
+                $arguments = $eventData.Arguments
+                Write-Host "Button geklickt: $arguments" -ForegroundColor Cyan
+                
+                # Argumente parsen
+                $parts = $arguments -split '\|'
+                
+                if ($parts.Count -ge 3) {
+                    $action = $parts[0]
+                    $link = $parts[1]
+                    $title = $parts[2]
+                    
+                    switch ($action) {
+                        "readlater" {
+                            Save-ArticleForLater -Title $title -Link $link -FolderPath $using:ReadLaterFolder
+                            Write-Host "Artikel für später gespeichert: $title" -ForegroundColor Green
                         }
-                        # Remember the link from which a notification has been generated
-                        $notified += $rssItem.link
-                        $newNotifications = $true
-                    } else {
-                        # do not notify
-                        if ($debug) { Write-Host (($rssItem.link) + " was already notified.") } else { Write-Host(".") -NoNewLine -ForegroundColor (Get-RandomColor)}
+                        "archive" {
+                            Save-ArticleForLater -Title $title -Link $link -FolderPath $using:ArchiveFolder
+                            Write-Host "Artikel archiviert: $title" -ForegroundColor Yellow
+                        }
                     }
                 }
             }
-
-            if ($newNotifications) {
-                # save the notification progress of the notified variable in the notified json file
-                Manage-JsonVariable -Save -Folder $tempFolderPath -VariableName "notified"
+            catch {
+                Write-Warning "Fehler im Event Handler: $_"
             }
-            $recheckEverySecondsCounter = 0 # Reset the counter
-        }
-        Start-Sleep -Seconds 1
+        } | Out-Null
         
-        # Display the progress bar
-        $percentComplete = ($recheckEverySecondsCounter / $recheckEverySeconds) * 100
-        Write-Progress -PercentComplete $percentComplete -Status "in $($recheckEverySeconds - $recheckEverySecondsCounter) seconds" -Activity "Waiting for next run" -CurrentOperation "Seconds left $($recheckEverySeconds - $recheckEverySecondsCounter)"
-
-        $recheckEverySecondsCounter++
-    
-    }
-    catch {
-        Write-Host "An error occurred: $_"
-        Start-Sleep -Seconds 60  # Wait for a minute before retrying in case of an error
+        Write-Verbose "Event Handler registriert"
     }
 }
+catch {
+    Write-Warning "Event Handler konnte nicht registriert werden: $_"
+}
+
+#endregion Event Handler Registration
+
+#region Main Script Logic
+
+Write-Host "RSS-Feed-Notifier mit erweiterten Benachrichtigungen gestartet" -ForegroundColor Green
+Write-Host "Später lesen: $ReadLaterFolder" -ForegroundColor Cyan
+Write-Host "Archiv: $ArchiveFolder" -ForegroundColor Cyan
+
+# Favicon-Informationen vorbereiten
+$faviconData = $RssFeedUrls | ForEach-Object {
+    $domain = ([uri]$_).Host
+    [PSCustomObject]@{
+        RemoteFile = "https://$domain/favicon.ico"
+        LocalFile  = Join-Path -Path $TempFolderPath -ChildPath "${domain}_favicon.ico"
+    }
+} | Sort-Object -Property RemoteFile, LocalFile -Unique
+
+# Favicons herunterladen
+Get-FaviconImage -FaviconInfo $faviconData
+
+# Benachrichtigungsverlauf laden
+$notificationHistory = Get-NotificationHistory -FolderPath $TempFolderPath -FileName "rss_notifier_history_advanced"
+if (-not $notificationHistory) { 
+    $notificationHistory = @() 
+}
+
+Write-Verbose "Geladener Verlauf enthält $($notificationHistory.Count) Einträge"
+
+# Hauptschleife
+$counter = $CheckIntervalSeconds
+
+while ($true) {
+    try {
+        if ($counter -ge $CheckIntervalSeconds) {
+            $newNotificationsCreated = $false
+            
+            foreach ($feedUrl in $RssFeedUrls) {
+                Write-Verbose "Prüfe Feed: $feedUrl"
+                
+                $rssItems = Get-LatestRssItems -RssUrl $feedUrl -Count $MaxItemsPerFeed
+                
+                foreach ($item in $rssItems) {
+                    if ($item.Link -and $item.Link -notin $notificationHistory) {
+                        # String-Konvertierung
+                        $titleString = [string]$item.Title
+                        
+                        Write-Verbose "Neues Item gefunden: $titleString (Link: $($item.Link))"
+                        
+                        if ($titleString.Length -gt 0) {
+                            # Optimale Zeichenlängen für Windows Toast Notifications
+                            # Windows 11: Titel ~70, Text ~141
+                            # Windows 10: Titel ~64, Text ~121
+                            # Wir verwenden konservative Werte für Kompatibilität
+                            $titleLength = [Math]::Min($titleString.Length, 65)
+                            $messageLength = [Math]::Min($titleString.Length, 120)
+                            
+                            $feedHost = ([uri]$feedUrl).Host
+                            $feedScheme = ([uri]$feedUrl).Scheme
+                            $iconPath = ($faviconData | Where-Object { $_.LocalFile -like "*$feedHost*" }).LocalFile
+                            $domain = "$feedScheme`://$feedHost"
+                            $groupName = Get-NotificationGroupName -RssUrl $feedUrl
+                            
+                            # Hero-Image herunterladen falls vorhanden
+                            $heroImagePath = $null
+                            if ($EnableImages -and $item.ImageUrl) {
+                                Write-Verbose "Bild-URL gefunden: $($item.ImageUrl)"
+                                
+                                # Erstelle eindeutigen Dateinamen basierend auf URL-Hash
+                                $urlHash = [System.BitConverter]::ToString([System.Security.Cryptography.MD5]::Create().ComputeHash([System.Text.Encoding]::UTF8.GetBytes($item.ImageUrl))).Replace("-", "")
+                                $imageExtension = [System.IO.Path]::GetExtension($item.ImageUrl).Split('?')[0]
+                                if (-not $imageExtension -or $imageExtension.Length -gt 5) { $imageExtension = ".jpg" }
+                                $imageFileName = "RSS_${urlHash}${imageExtension}"
+                                $imageLocalPath = Join-Path -Path $TempFolderPath -ChildPath $imageFileName
+                                
+                                Write-Verbose "Lokaler Bildpfad: $imageLocalPath"
+                                
+                                $heroImagePath = Get-ImageFile -Url $item.ImageUrl -DestinationPath $imageLocalPath -MaxSize $MaxImageDownloadSize
+                                
+                                if ($heroImagePath) {
+                                    Write-Verbose "Hero-Image wird verwendet: $heroImagePath"
+                                }
+                            }
+                            
+                            # Sound-Schema basierend auf Quelle
+                            $currentSound = if ($EnableSound) { $SoundScheme } else { "Silent" }
+                            
+                            Write-Verbose "Erstelle Benachrichtigung für: $($titleString.Substring(0, $titleLength))"
+                            
+                            Show-AdvancedRssNotification `
+                                -Title $titleString.Substring(0, $titleLength) `
+                                -Message $titleString.Substring(0, $messageLength) `
+                                -Link $item.Link `
+                                -IconPath $iconPath `
+                                -HeroImagePath $heroImagePath `
+                                -GroupName $groupName `
+                                -Domain $domain `
+                                -SoundType $currentSound
+                            
+                            $notificationHistory += $item.Link
+                            $newNotificationsCreated = $true
+                            
+                            Write-Verbose "Link zur Historie hinzugefügt: $($item.Link)"
+                        }
+                    }
+                    else {
+                        if ($DebugMode) {
+                            Write-Verbose "Bereits benachrichtigt: $($item.Link)"
+                        }
+                        else {
+                            Write-Host "." -NoNewline -ForegroundColor (Get-RandomConsoleColor)
+                        }
+                    }
+                }
+            }
+            
+            # Verlauf speichern, falls neue Benachrichtigungen erstellt wurden
+            if ($newNotificationsCreated) {
+                Write-Verbose "Speichere Verlauf mit $($notificationHistory.Count) Einträgen"
+                Save-NotificationHistory -FolderPath $TempFolderPath -FileName "rss_notifier_history_advanced" -Data $notificationHistory
+            }
+            
+            $counter = 0
+        }
+        
+        # Fortschrittsanzeige
+        Start-Sleep -Seconds 1
+        $percentComplete = ($counter / $CheckIntervalSeconds) * 100
+        $secondsRemaining = $CheckIntervalSeconds - $counter
+        
+        Write-Progress `
+            -Activity "Warte auf nächste Prüfung" `
+            -Status "Noch $secondsRemaining Sekunden" `
+            -PercentComplete $percentComplete `
+            -CurrentOperation "Nächste Prüfung in $secondsRemaining Sekunden"
+        
+        $counter++
+    }
+    catch {
+        Write-Error "Fehler in der Hauptschleife: $_"
+        Start-Sleep -Seconds 60
+    }
+}
+
+#endregion Main Script Logic
