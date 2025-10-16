@@ -25,10 +25,10 @@ param()
 
 #region Configuration
 $RssFeedUrls = @(
-    "https://www.heise.de/security/feed.xml"#,
-    #    "https://www.heise.de/security/Alerts/feed.xml",
-    #    "https://www.heise.de/rss/heise-top-atom.xml",
-    #    "https://www.stern.de/feed/standard/all"
+    "https://www.heise.de/security/feed.xml",
+        "https://www.heise.de/security/Alerts/feed.xml",
+        "https://www.heise.de/rss/heise-top-atom.xml",
+        "https://www.stern.de/feed/standard/all"
 )
 $CheckIntervalSeconds = 300
 $MaxItemsPerFeed = 5
