@@ -11,7 +11,7 @@
     Version: 5.1 (Final)
     Voraussetzungen: 
     - Windows 10/11
-    - PowerShell 5.1 oder höher
+    - PowerShell 7 oder höher (das Script nutzt den Operator ??)
     - BurntToast-Modul (wird automatisch installiert)
 
 .LINK
@@ -21,7 +21,7 @@
 [CmdletBinding()]
 param()
 
-#Requires -Version 5.1
+#Requires -Version 7.0
 
 #region Configuration
 $RssFeedUrls = @(
@@ -266,13 +266,6 @@ while ($true) {
                 $rssItems = Get-LatestRssItems -RssUrl $feedUrl -Count $MaxItemsPerFeed
                 Write-Verbose "Verarbeite Feed: $feedUrl mit Gruppe: $groupName"
 
-                if ($rssItems.Count -eq 0) {
-                    Write-Host "Keine Artikel im Feed gefunden." -ForegroundColor Gray; continue 
-                }
-                else { 
-                    Write-Host "Gefundene Artikel: $($rssItems.Count)" -ForegroundColor Gray 
-                }
-                Write-Verbose "Verarbeite Feed: $feedUrl mit Gruppe: $groupName"
                 if ($rssItems.Count -eq 0) {
                     Write-Host "Keine Artikel im Feed gefunden." -ForegroundColor Gray; continue 
                 }
